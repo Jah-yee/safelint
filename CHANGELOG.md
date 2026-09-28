@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.1] - 2026-09-28
+
 ### Changed
 
 - **CI: bump `astral-sh/setup-uv` to v10.2.0 and `anthropics/claude-code-action` to v1.0.231** (folded in from the Dependabot PR). Both remain SHA-pinned; each new SHA was verified against its dereferenced tag object before applying. No packaged behaviour change.
@@ -1058,7 +1060,8 @@ This release adds the foundations needed by editor integrations and the upcoming
 - Pre-commit hook integration.
 - `--mode=ci` and `--fail-on` CLI flags.
 
-[Unreleased]: https://github.com/shelkesays/safelint/compare/v2.14.0...HEAD
+[Unreleased]: https://github.com/shelkesays/safelint/compare/v2.14.1...HEAD
+[2.14.1]: https://github.com/shelkesays/safelint/compare/v2.14.0...v2.14.1
 [2.14.0]: https://github.com/shelkesays/safelint/compare/v2.13.0...v2.14.0
 [2.13.0]: https://github.com/shelkesays/safelint/compare/v2.12.1...v2.13.0
 [2.12.1]: https://github.com/shelkesays/safelint/compare/v2.12.0...v2.12.1
