@@ -8,11 +8,11 @@ classifying each finding as a true positive, a false positive, or debatable.
 
 safelint's own test suite proves rules fire on code written to make them fire.
 It cannot prove they *stay quiet* on idiomatic code someone else wrote. The
-programme has so far found **27** defects across Python, JavaScript, TypeScript,
-Java, PHP and Rust - none of which the full suite - 2237 tests, 97% coverage -
-catches, because
-every one of them is a rule being wrong about a language idiom rather than wrong
-about its own logic.
+programme has so far found **35** defects across all nine supported languages - none of which the full suite - 2237 tests, 97% coverage -
+catches. Almost
+every one is a rule being wrong about a language idiom rather than wrong about
+its own logic; the exceptions are engine-level, such as finding 22, where a
+parse failure removes a file from analysis with no signal in the summary.
 
 Two rules were firing on **default settings**: `SAFE105` on Java method
 overloads, and `SAFE102` on every JavaScript `else if` chain.
@@ -139,7 +139,7 @@ surfaced it. That is the whole point of having two.
 
 ## Project matrix
 
-Clones live in **`/Users/rahulshelke/sources/safelint_tests/`**, deliberately
+Clones live in a **`safelint_tests/`** directory outside this repository, deliberately
 separate from personal work so the validation corpus is never confused with
 actual projects and can be wiped and re-cloned at will. Status: `todo`,
 `cloned`, `run`, `triaged`.
@@ -148,41 +148,41 @@ actual projects and can be wiped and re-cloned at will. Status: `todo`,
 
 | Language | Project | Repository | Why this one | Status |
 |---|---|---|---|---|
-| Python | Requests | `psf/requests` | The most-copied Python idiom source there is; small, pure library | todo |
-| Python | Rich | `Textualize/rich` | Modern typed Python, very different style from Requests | todo |
-| JavaScript | Express | `expressjs/express` | Canonical Node service code, callback-heavy | todo |
-| JavaScript | Axios | `axios/axios` | Promise/async idioms, dual browser+node target | todo |
-| TypeScript | Vue core | `vuejs/core` | Large idiomatic TS without styled-components | todo |
-| TypeScript | Zod | `colinhacks/zod` | Type-level heavy TS; very different shape from Vue | todo |
+| Python | Requests | `psf/requests` | The most-copied Python idiom source there is; small, pure library | `run` (2.14.3 @ `611c616`) |
+| Python | Rich | `Textualize/rich` | Modern typed Python, very different style from Requests | `run` (2.14.3 @ `9d8f9a3`) |
+| JavaScript | Express | `expressjs/express` | Canonical Node service code, callback-heavy | `run` (2.14.3 @ `7ef9844`) |
+| JavaScript | Axios | `axios/axios` | Promise/async idioms, dual browser+node target | `run` (2.14.3 @ `e1a8a57`) |
+| TypeScript | Vue core | `vuejs/core` | Large idiomatic TS without styled-components | `run` (2.14.3 @ `4ab865a`) |
+| TypeScript | Zod | `colinhacks/zod` | Type-level heavy TS; very different shape from Vue | `run` (2.14.3 @ `0b216ef`) |
 | TypeScript | Superset frontend | `apache/superset` (`superset-frontend/`) | Large React/TS app; already run, and the source of the styled-components finding | run |
-| Java | Commons Lang | `apache/commons-lang` | Vanilla Java, no framework; pure library idioms | todo |
-| Java | Guava | `google/guava` | Large, heavily reviewed, different house style | todo |
+| Java | Commons Lang | `apache/commons-lang` | Vanilla Java, no framework; pure library idioms | `run` (2.14.3 @ `25c4bfc`) |
+| Java | Guava | `google/guava` | Large, heavily reviewed, different house style | `run` (2.14.3 @ `74fb73b`) |
 | Rust | Ruff | `astral-sh/ruff` | Large modern idiomatic Rust; a linter itself. **Includes ty**: the type checker's source is `crates/ty_*` in this monorepo | **triaged** (`plan/real-world-results/rust-ruff-2.14.0-0be08a2.md`) |
 | Rust | ty | `astral-sh/ruff` subtree `crates/ty_` | The type checker: a recursion-heavy subsystem by partly different authors. Validated with `--include` rather than its own clone - see the note below | **triaged** (`plan/real-world-results/rust-ty-2.14.0-0be08a2.md`) |
 | Rust | ripgrep | `BurntSushi/ripgrep` | Single author, different domain, classic idiomatic Rust - the unrelated second project the two-project rule requires | **triaged** (`plan/real-world-results/rust-ripgrep-2.14.0-3fce3b5.md`) |
-| Go | Cobra | `spf13/cobra` | CLI library; no web framework involved | todo |
-| Go | fzf | `junegunn/fzf` | Application rather than library; concurrency-heavy | todo |
-| PHP | Guzzle | `guzzle/guzzle` | Widely used PHP with no framework preset | todo |
-| PHP | Monolog | `Seldaek/monolog` | Different domain; exercises SAFE203 logging rules honestly | todo |
-| C | curl | `curl/curl` | Security-critical C, heavily audited, idiomatic | todo |
-| C | Redis | `redis/redis` | Different C style; allocation and string-handling heavy | todo |
-| C++ | fmt | `fmtlib/fmt` | Modern C++, template-heavy, widely vendored | todo |
-| C++ | LevelDB | `google/leveldb` | Classic OO C++; RAII and pointer discipline | todo |
+| Go | Cobra | `spf13/cobra` | CLI library; no web framework involved | `run` (2.14.3 @ `adbc881`) |
+| Go | fzf | `junegunn/fzf` | Application rather than library; concurrency-heavy | `run` (2.14.3 @ `b1be3a8`) |
+| PHP | Guzzle | `guzzle/guzzle` | Widely used PHP with no framework preset | `run` (2.14.3 @ `9393947`) |
+| PHP | Monolog | `Seldaek/monolog` | Different domain; exercises SAFE203 logging rules honestly | `run` (2.14.3 @ `d7059e4`) |
+| C | curl | `curl/curl` | Security-critical C, heavily audited, idiomatic | `run` (2.14.3 @ `61a31e0`) |
+| C | Redis | `redis/redis` | Different C style; allocation and string-handling heavy | `run` (2.14.3 @ `b540ca4`) |
+| C++ | fmt | `fmtlib/fmt` | Modern C++, template-heavy, widely vendored | `run` (2.14.3 @ `4afd0e4`) |
+| C++ | LevelDB | `google/leveldb` | Classic OO C++; RAII and pointer discipline | `run` (2.14.3 @ `7ee830d`) |
 
 ### Framework / runtime rows (preset enabled)
 
 | Preset | Project | Repository | Status |
 |---|---|---|---|
-| python / `django` | Django | `django/django` | todo |
-| python / `flask` | Flask | `pallets/flask` | todo |
-| python / `fastapi` + `pydantic = true` | FastAPI | `fastapi/fastapi` | todo |
-| java / `spring-boot` | Spring PetClinic | `spring-projects/spring-petclinic` | run (`plan/real-world-results/java-spring-petclinic-2.14.0-c7ee170.md`) |
-| php / `laravel` | Laravel framework | `laravel/framework` | todo |
+| python / `django` | Django | `django/django` | `run` (2.14.3 @ `a461af8`) |
+| python / `flask` | Flask | `pallets/flask` | `run` (2.14.3 @ `d73fa1c`) |
+| python / `fastapi` + `pydantic = true` | FastAPI | `fastapi/fastapi` | `run` (2.14.3 @ `5f9fc5c`) |
+| java / `spring-boot` | Spring PetClinic | `spring-projects/spring-petclinic` | `run` (2.14.3 @ `500158f`); the earlier 2.14.0 @ `c7ee170` report is kept beside it for comparison |
+| php / `laravel` | Laravel framework | `laravel/framework` | `run` (2.14.3 @ `2c32946`) |
 | php / `laravel` | FreeScout (application, not framework) | `freescout-help-desk/freescout` | run |
-| javascript / `browser` | Chart.js | `chartjs/Chart.js` | todo |
-| javascript / `deno` | Deno std | `denoland/std` | todo |
-| javascript / `bun` | Elysia | `elysiajs/elysia` | todo |
-| javascript / `cloudflare-workers` | Workers templates | `cloudflare/templates` | todo |
+| javascript / `browser` | Chart.js | `chartjs/Chart.js` | `run` (2.14.3 @ `7169e65`) |
+| javascript / `deno` | Deno std | `denoland/std` | `run` (2.14.3 @ `f834d02`) |
+| javascript / `bun` | Elysia | `elysiajs/elysia` | `run` (2.14.3 @ `e037eca`) |
+| javascript / `cloudflare-workers` | Workers templates | `cloudflare/templates` | `run` (2.14.3 @ `f4e0814`) |
 
 Notes on the Rust rows:
 
@@ -272,7 +272,10 @@ mislead:
 
 ## Findings register
 
-Every defect found gets a GitHub issue. Findings 1-15 were found against safelint
+Every defect found gets a GitHub issue. **Default-on?** is `yes` when vanilla
+defaults enable the rule, `no` when it is opt-in, and `preset (<name>)` when a
+framework or runtime preset turns it on - a distinction that matters because a
+preset-enabled rule reaches every user of that framework without their asking. Findings 1-15 were found against safelint
 **2.14.0rc3**, findings 16-27 against the released **2.14.0**. `Verified` means reproduced from a minimal case, not just
 observed in a large codebase. `Found in` is where it first surfaced, so the
 claim can be re-checked; a private project there means the finding still needs
@@ -307,6 +310,14 @@ confirming on a public one before the issue is worked.
 | 25 | SAFE501 | Blind inside Rust macro token trees - three literal `break;` unseen | High | **yes** | yes | ty | #179 |
 | 26 | SAFE801 | Rust sinks matched by bare callee - a closure parameter named `query` fires | High | no | yes | ty 3/4, ruff 5/5 | #180 |
 | 27 | SAFE104 | Rust exhaustive `match` arms dominate the complexity score | Tuning | **yes** | yes | ruff 54%, ty 24% | #181 |
+| 28 | SAFE304 / SAFE401 / SAFE101 | Default-on rules land most findings in test code: SAFE304 82%, SAFE401 78%, SAFE101 56% across 5/5 Python projects (6688 findings). Controls SAFE104 4%, SAFE103 5%. safelint relaxes 3 of these for its own `tests/**` but ships no user default | High | **yes** | yes | all 5 python | #198 |
+| 29 | SAFE203 | Output writers are not accepted, so adding a diagnostic `print` to a handler that re-raises *introduces* a finding - `raise` alone is exempt, `print(exc); raise` is not. Logging method names on any receiver already count, and bare re-raise is already exempt, so the affected share is small: 68/1795 (3%) | Low | **yes** | yes | all 5 python | #199 |
+| 30 | SAFE305 | Every `var` flagged identically, so a pre-ES6 codebase is 89% one rule (1748/1960 in Express) and the genuinely hoisting-hazardous cases are indistinguishable from harmless module-scope ones | High | **yes** | yes | express, axios | #201 |
+| 31 | SAFE302 | A local `const self = this` is reported as a write to the browser global `self`; the name is matched without checking for a shadowing declaration | High | **yes** | yes | axios 3 sites | #202 |
+| 32 | SAFE302 | Every package-level `var` in Go flagged as shared mutable state, including ones `const` cannot express (slices, ldflags-written strings) and that are never mutated. 120 findings in fzf, 97% library code; the never-mutated file yields 2 and the genuinely-mutated one 1 | High | **yes** | yes | fzf, cobra | #204 |
+| 33 | SAFE000 | 17-44% of real C/C++ files reported as syntax errors and dropped from analysis, though the code is valid - the cause is the preprocessor (`#ifdef` mid-expression, macro parameter lists, guarded `__attribute__`) which tree-sitter does not run. Redis 347/788 C files (44%), curl 277/1048 (26%), fmt 19/47 (40%), LevelDB 13/76 (17%). The message tells the user to check syntax | High | **yes** | yes | redis, curl, fmt, leveldb | #206 |
+| 34 | SAFE901 | `@Autowired` field injection reported in Spring TEST classes, where it is the pattern Spring's own docs and sample code use. 17/17 findings in tests on Spring PetClinic - 51% of the project's default output | High | preset (`spring-boot`) | yes | spring-petclinic | #208 |
+| 35 | SAFE906 | Laravel's own framework internals flagged for `$guarded = []` (`Pivot`, `DatabaseNotification`), models the framework populates itself rather than from request input. 273 findings, one repeated message | Tuning | preset (`laravel`) | yes | laravel/framework | #210 |
 
 ## What three Rust projects showed together
 
@@ -341,6 +352,91 @@ in the others. That is what the two-project rule buys, and it earned its keep:
 #173's `use`-shadow appeared once in ripgrep and never in ty, but two *other*
 binding forms of the same bug appeared in Ruff and ty - so the fix had to widen
 rather than being dismissed as a one-off.
+
+## Fix programme: classification and order
+
+The sweep is finished - every language and every preset has been run, and the
+register above is closed. What follows is how the resulting backlog is ordered,
+and the principle it is ordered on.
+
+**Nothing is dropped.** Every open issue is in scope, including the engine and
+harness ones in class C. A finding that is recorded and never fixed is worse than
+one never found, because the register then documents known-bad behaviour that
+nobody is accountable for.
+
+### The ordering principle: is safelint telling the truth?
+
+Severity is the wrong primary axis. It measures how much a finding *hurts* -
+whether it blocks a run - not whether safelint is **correct**. A rule that reports
+a defect which does not exist costs the same trust whether it is an `error` or a
+`warning`: the user investigates, finds nothing, and from then on discounts
+everything the tool says. safelint's value is entirely that its findings can be
+believed, so correctness comes first and blocking-ness is a tiebreaker.
+
+That reorders things against intuition. SAFE105's 2814 Java findings are
+`warning` severity and do not fail a default local run, yet they rank above
+SAFE305's 1748 blocking-in-CI findings, because "this recurses" is false about
+code that does not recurse while "this is a `var`" is true about a `var`.
+
+### Class A - safelint reports a defect that does not exist
+
+The trust problem. These are first, grouped by shared mechanism so one fix closes
+several.
+
+| group | issues | what safelint claims | what is true |
+|---|---|---|---|
+| Recursion that is not recursion | #153, #160, #173 | "recursion" (2814 Java findings, 51% of Commons Lang defaults) | a different overload, an `impl` method, a shadowed local `use` |
+| Valid code called a syntax error | #206, #164, #174 | "syntax error - check syntax" on 17-44% of C/C++ files | valid C/C++/TS/Rust; the preprocessor is not run, and some macros defeat the grammar |
+| A name matched without its context | #202, #178, #180, #158, #171 | a local `self` "writes to a global"; a closure parameter named `query` is "injection"; `write!` to a `Formatter` is "I/O" | the name is shadowed, or the receiver decides and is ignored |
+| Structure counted that is not there | #154, #166 | nesting depth N | `else if`, `with` and `try` are not nesting levels |
+| Control flow misread | #170, #179 | "infinite loop"; statements invisible inside macro token trees | the loop `return`s; the statements exist |
+| A premise that is false | #161, #177, #172, #157, #162, #159, #199 | "unlogged", "assertion-free", "production code", "unvalidated", "swallowed" | it logs via a helper, insta macros are assertions, it is a test, `Validator::make` validates, the error is re-raised |
+| Python semantics borrowed from C | #155, #156 | "may return None" | `dict.get(k, default)` cannot; `mkdir` / `unlink` do not return a sentinel |
+| A label that is wrong | #165 | `Function "<anonymous>"` | `const Foo = () => {}` has a name |
+
+**Class A2, called out separately:** #180, #158, #178 land on SAFE801, the
+security rule. A false positive there costs more than elsewhere - a security
+finding that turns out to be nothing teaches the user to skim the next one.
+
+### Class B - true, but inapplicable in context
+
+The finding is correct; the context makes it unhelpful. Real work, and large by
+volume, but safelint is not lying.
+
+| issues | nature |
+|---|---|
+| #198 | test-scoping: 10 rules, 5 languages, 9 default-on. SAFE901 100%, SAFE302 95%, SAFE401 93%, SAFE101 74%, SAFE304 82% |
+| #201, #204 | a construct reported rather than the hazard it names: every JS `var` (85-89% of defaults), every Go package `var` (and the harmless file yields *more* findings than the hazardous one) |
+| #181, #208, #210, #163 | tuning: Rust `match` arms 54%, Spring test field injection 100%, Laravel internals, the SAFE601 default |
+
+#198 is the largest single lever in the backlog - one decision across ten rules -
+and it is deliberately *not* first, because it makes safelint quieter rather than
+more honest.
+
+### Class C - engine and reporting
+
+In scope, not deferred. #175 in particular is a prerequisite rather than a
+nicety: #206 silently drops up to 44% of a C project's files, and that is only
+discoverable if the run reports how many it skipped.
+
+| issue | why it matters |
+|---|---|
+| #175 | no skipped-file signal - pairs with #206; a clean Redis run currently reads as a pass over three fifths of the code |
+| #196 | per-language scan counts. Needed by #192, and the absence of it has already put a wrong number in this document twice |
+| #192 | the harness re-derives safelint's discovery rules; five false-clean defects came from that model drifting. Blocked on #196 |
+
+### Execution order
+
+1. **Class A, by mechanism** - recursion (#153, #160, #173) first: largest measured
+   volume, unambiguous mechanism, and argument counts alone resolve most of it
+   with no type resolution. Then the name-without-context family (#202, #178,
+   #180, #158, #171), then structure (#154, #166), then control flow, then the
+   false premises.
+2. **#175 plus #206's message** - the only issue where safelint both misreports
+   and hides the consequence.
+3. **Remaining Class A**, including the Python-semantics and labelling fixes.
+4. **Class C** - #196 then #192.
+5. **Class B**, led by #198.
 
 ## Cross-cutting root cause
 
