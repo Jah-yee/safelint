@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.3] - 2026-10-04
+
 ### Changed
 
 - **CI / dev dependencies: bump `urllib3` to 2.8.0, `virtualenv` to 21.14.5 and `python-discovery` to 1.6.1** (folded in from the Dependabot PR). Lockfile only - safelint's single runtime dependency is `tree-sitter`, and all three reach the project through dev tooling (`requests` -> urllib3; `pre-commit` -> virtualenv -> python-discovery), so the published wheel is unaffected. urllib3 2.8.0 carries three security fixes, two rated High (HTTPS-proxy TLS configuration being ignored, and an unbounded chunk-size line buffered during streaming). Each proposed artefact hash was verified against the PyPI JSON API before applying.
@@ -1086,7 +1088,8 @@ This release adds the foundations needed by editor integrations and the upcoming
 - Pre-commit hook integration.
 - `--mode=ci` and `--fail-on` CLI flags.
 
-[Unreleased]: https://github.com/shelkesays/safelint/compare/v2.14.2...HEAD
+[Unreleased]: https://github.com/shelkesays/safelint/compare/v2.14.3...HEAD
+[2.14.3]: https://github.com/shelkesays/safelint/compare/v2.14.2...v2.14.3
 [2.14.2]: https://github.com/shelkesays/safelint/compare/v2.14.1...v2.14.2
 [2.14.1]: https://github.com/shelkesays/safelint/compare/v2.14.0...v2.14.1
 [2.14.0]: https://github.com/shelkesays/safelint/compare/v2.13.0...v2.14.0
