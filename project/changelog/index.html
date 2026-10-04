@@ -2090,7 +2090,18 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Unreleased">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2143-2026-10-04" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.14.3 - 2026-10-04
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.14.3 - 2026-10-04">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -4324,7 +4335,18 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Unreleased">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2143-2026-10-04" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.14.3 - 2026-10-04
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.14.3 - 2026-10-04">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -6452,7 +6474,8 @@
 <p>All notable changes to this project will be documented in this file.</p>
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>,
 and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
-<h2 id="unreleased"><a href="https://github.com/shelkesays/safelint/compare/v2.14.2...HEAD">Unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">#</a></h2>
+<h2 id="unreleased"><a href="https://github.com/shelkesays/safelint/compare/v2.14.3...HEAD">Unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">#</a></h2>
+<h2 id="2143-2026-10-04"><a href="https://github.com/shelkesays/safelint/compare/v2.14.2...v2.14.3">2.14.3</a> - 2026-10-04<a class="headerlink" href="#2143-2026-10-04" title="Permanent link">#</a></h2>
 <h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">#</a></h3>
 <ul>
 <li><strong>CI / dev dependencies: bump <code>urllib3</code> to 2.8.0, <code>virtualenv</code> to 21.14.5 and <code>python-discovery</code> to 1.6.1</strong> (folded in from the Dependabot PR). Lockfile only - safelint's single runtime dependency is <code>tree-sitter</code>, and all three reach the project through dev tooling (<code>requests</code> -&gt; urllib3; <code>pre-commit</code> -&gt; virtualenv -&gt; python-discovery), so the published wheel is unaffected. urllib3 2.8.0 carries three security fixes, two rated High (HTTPS-proxy TLS configuration being ignored, and an unbounded chunk-size line buffered during streaming). Each proposed artefact hash was verified against the PyPI JSON API before applying.</li>
