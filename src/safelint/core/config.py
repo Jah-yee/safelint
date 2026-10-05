@@ -1346,13 +1346,7 @@ DEFAULTS: dict[str, Any] = {
                 "sendfile",
                 "seek",
                 "truncate",
-                "remove",
-                "unlink",
-                "rename",
                 "replace",
-                "makedirs",
-                "mkdir",
-                "rmdir",
             ],
             # JavaScript defaults - Node fs / stream / process methods
             # whose return value (or returned promise) carries
