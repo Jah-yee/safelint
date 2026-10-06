@@ -1242,7 +1242,7 @@ Calling `subprocess.run(["rm", "-rf", path])` as a bare statement (not assigning
 
 Default `flagged_calls`: `run`, `call`, `check_output`, `write`, `send`, `sendall`, `sendfile`, `seek`, `truncate`, `replace`
 
-> **Note:** SAFE802 matches the call name without its receiver. For example, `asyncio.run()` can match `run`. Functions that return `None` (such as `remove`, `unlink`, `rename`, `makedirs`, `mkdir`, `rmdir`) are excluded from the Python defaults because their return value carries no success/failure signal.
+> **Note:** SAFE802 matches the call name without its receiver. For example, `asyncio.run()` can match `run`. Functions that return `None` (such as `os.remove`, `os.unlink`, `os.rename`, `os.makedirs`, `os.mkdir`, `os.rmdir`) are excluded from the Python defaults because their return value carries no success/failure signal. Because SAFE802 matches call names without receivers, this also excludes `Path.rename()` from the Python defaults.
 
 ```toml
 [tool.safelint.rules.return_value_ignored]
