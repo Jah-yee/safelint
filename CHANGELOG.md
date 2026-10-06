@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **SAFE105 `no_recursion`: three shapes that are not self-calls are no longer reported as recursion.** The rule resolved a bare call by name with no notion of what that name refers to at the call site.
+  - **Java overloads (#153).** A call whose argument count differs from the enclosing method's parameter count cannot be a self-call, and deciding that needs no type information: `boolean[] add(boolean[], int, boolean)` calling `add(a, i, Boolean.valueOf(e), Boolean.TYPE)` is a different method. Varargs are exempt from the check, since a fixed-arity comparison proves nothing there. Measured: Commons Lang **655 -> 279** findings (-57%), Guava **2159 -> 477** (-78%).
+  - **Rust associated functions (#160).** A bare `name(..)` inside an `impl` or `trait` body can never reach the method - that requires `self.name()` or `Type::name(..)` - so it always resolves to a free function or an import. This is the same reasoning the existing `is_method` flag already applied to Go and PHP methods.
+  - **Rust function-local `use` (#173).** `use std::os::unix::fs::symlink;` inside a `fn symlink` rebinds the name for the rest of the block, so the bare call is not recursion. Covers plain paths, brace lists and `as` aliases. The shape is in ripgrep's `crates/ignore/src/walk.rs`.
+
+  Together on ripgrep: **32 -> 23** findings, removing exactly the 9 that #173 predicted. Self-qualified calls, genuine free-function recursion, matching-arity Java calls and unrelated local imports all still report - each pinned by a test, and each fix verified to be load-bearing by mutation.
+
+  Three ways the new suppressions could themselves have hidden genuine recursion were found in review and closed before release; all three were the dangerous direction for this rule, a missed finding rather than a false one. Counts on Commons Lang, Guava, ripgrep and Ruff are unchanged by the three, so none of the shapes occurs in that corpus - which is precisely why each needed a test rather than a measurement.
+  - **Java explicit receiver parameters.** `void tick(Outer Outer.this, int n)` parses the receiver as a `receiver_parameter` child of `formal_parameters`, but it is never passed at a call site, so counting it made the signature look like a two-parameter one and the one-argument self-call read as an arity mismatch. It is now discounted, and the arity check still fires on a genuine mismatch in such a method.
+  - **Rust `use` scope.** A `use` is an item, so it binds throughout its enclosing block and no further. Treating any import in the body as function-wide silenced a recursive call *outside* the block that shadowed the name. The check now carries the shadowing block's byte span and applies per call, so `{ use std::fs::walk; }` followed by `walk(n - 1)` still reports, while a call inside that block does not.
+  - **Rust `as` aliases.** `use other::bar as helper` binds only `helper`. Collecting every identifier beneath the `use` also read `bar` as bound, which silenced a genuine `bar()` call in `fn bar`; the walk now stops at the `as` clause and takes its alias.
+
+  **#153 is improved but not closed.** Of the 279 findings remaining on Commons Lang, 268 (96%) are same-arity overloads such as `remove(boolean[], int)` delegating to `remove(Object, int)`. The issue anticipated that residue but expected it to be rare; it is in fact the dominant remaining class. Classifying all 279 by argument shape shows **81%** of them state in the source text that they target a different signature - an explicit cast, a wrapping call, an array element where the parameter is an array, or a varargs method whose arity is claimed by a fixed-arity sibling - so most of the residue is reachable without type resolution after all. That is the next step on the issue, and it is deliberately *not* "stay quiet whenever the name is overloaded": genuine recursion passes plain identifiers and so carries none of those signals, which is why suppressing on name ambiguity alone would have silenced real recursion in `ClassUtils.getAllInterfaces` and Guava's `AbstractIteratorTester.recurse`.
+
 ## [2.14.3] - 2026-10-04
 
 ### Changed
