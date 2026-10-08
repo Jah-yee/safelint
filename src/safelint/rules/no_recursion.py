@@ -27,8 +27,8 @@ count.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, NamedTuple
 
 from safelint.languages import c as _c
 from safelint.languages import cpp as _cpp
@@ -44,6 +44,8 @@ from safelint.rules.base import BaseRule, Suggestion
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     import tree_sitter
 
     from safelint.rules.base import Violation
@@ -312,6 +314,207 @@ def _java_arity_rules_out_self(call_node: tree_sitter.Node, func: tree_sitter.No
     return len(args.named_children) != len(declared)
 
 
+def _java_positional_params(func: tree_sitter.Node) -> tuple[tuple[str | None, str | None], ...]:
+    """Return ``(declared type, name)`` per positional parameter of a Java method.
+
+    The explicit receiver (``void tick(Outer Outer.this, int n)``) is excluded, as
+    it is never passed at a call site.
+    """
+    params = func.child_by_field_name("parameters")
+    if params is None:
+        return ()
+    out: list[tuple[str | None, str | None]] = []
+    for child in params.named_children:
+        if child.type == _java.RECEIVER_PARAMETER:
+            continue
+        type_node = child.child_by_field_name("type")
+        name_node = child.child_by_field_name("name")
+        out.append((node_text(type_node) if type_node is not None else None, node_text(name_node) if name_node is not None else None))
+    return tuple(out)
+
+
+def _java_type_variables(func: tree_sitter.Node) -> frozenset[str]:
+    """Return the type-variable names in scope for *func*: its own plus its type's.
+
+    A parameter declared as a type variable accepts anything, so none of the
+    argument-shape rules below can rule it out: ``<T> void f(T t)`` really does
+    accept ``f((Object) x)``, with ``T`` inferred as ``Object``.
+    """
+    holders = (func, _java_enclosing_type(func))
+    names: set[str] = set()
+    for holder in holders:
+        if holder is None:
+            continue
+        type_params = holder.child_by_field_name("type_parameters")
+        if type_params is None:
+            continue
+        names |= {node_text(entry.child_by_field_name("name") or entry) for entry in type_params.named_children}
+    return frozenset(names)
+
+
+def _java_enclosing_type(func: tree_sitter.Node) -> tree_sitter.Node | None:
+    """Return the class / interface / enum / record declaration *func* is declared in."""
+    cur = func.parent
+    while cur is not None:
+        if cur.type in _java.TYPE_DECLARATION_TYPES:
+            return cur
+        cur = cur.parent
+    return None
+
+
+def _java_foreach_array_sources(func: tree_sitter.Node) -> dict[str, str]:
+    """Map each for-each variable in *func* to the bare name it iterates over.
+
+    ``for (final boolean element : array)`` records ``element -> array``. When
+    ``array`` is the method's own array parameter, ``element`` has its element
+    type, which is never assignable to the array type itself.
+    """
+    sources: dict[str, str] = {}
+    for node in walk(func, skip_types=tuple(_java.FUNCTION_TYPES)):
+        if node.type != _java.ENHANCED_FOR_STATEMENT:
+            continue
+        name = node.child_by_field_name("name")
+        value = node.child_by_field_name("value")
+        if name is not None and value is not None and value.type == _java.IDENTIFIER:
+            sources[node_text(name)] = node_text(value)
+    return sources
+
+
+def _collect_functions(
+    root: tree_sitter.Node,
+    func_types: frozenset[str],
+    lang: str,
+) -> tuple[tuple[tree_sitter.Node, ...], dict[int, dict[str, tuple[tuple[int, bool], ...]]]]:
+    """Return the functions to check and, for Java, the per-type overload table.
+
+    One walk serves both. Resolving an overload needs the sibling declarations, so
+    the table must be complete before any function is checked, and re-walking the
+    enclosing type per method would make the rule quadratic in the file; walking
+    the tree a second time just to build it was measurably slower on Guava.
+    """
+    want_table = lang == _java.EXTRA_NAME
+    funcs: list[tree_sitter.Node] = []
+    table: dict[int, dict[str, list[tuple[int, bool]]]] = {}
+    for node in walk(root):
+        if node.type in func_types:
+            funcs.append(node)
+        if want_table and node.type == _java.METHOD_DECLARATION:
+            _record_java_method(table, node)
+    return tuple(funcs), {owner: {name: tuple(entries) for name, entries in names.items()} for owner, names in table.items()}
+
+
+def _record_java_method(table: dict[int, dict[str, list[tuple[int, bool]]]], node: tree_sitter.Node) -> None:
+    """Record *node*'s signature shape under its enclosing type and name."""
+    name_node = node.child_by_field_name("name")
+    owner = _java_enclosing_type(node)
+    if name_node is None or owner is None:
+        return
+    table.setdefault(owner.id, {}).setdefault(node_text(name_node), []).append(_java_signature_shape(node))
+
+
+def _java_signature_shape(func: tree_sitter.Node) -> tuple[int, bool]:
+    """Return ``(positional parameter count, is varargs)`` for a Java method.
+
+    Deliberately avoids resolving parameter types and names: this runs for every
+    method in the file, and decoding the source text of each one showed up as the
+    dominant cost of building the table.
+    """
+    params = func.child_by_field_name("parameters")
+    if params is None:
+        return (0, False)
+    count = 0
+    varargs = False
+    for child in params.named_children:
+        if child.type == _java.RECEIVER_PARAMETER:
+            continue
+        count += 1
+        varargs = varargs or child.type == _java.SPREAD_PARAMETER
+    return (count, varargs)
+
+
+def _java_delegation_is_provable(call_node: tree_sitter.Node, facts: _FunctionFacts) -> bool:
+    """Return True if *call_node* provably targets a method other than the enclosing one.
+
+    Two independent facts, each decidable from the source text alone. Neither is a
+    likelihood heuristic: each is a reason the enclosing method is not a candidate
+    for this call at all, so suppressing cannot hide genuine recursion.
+
+    * **An argument cast to ``Object`` against a non-``Object`` parameter.**
+      ``remove((Object) array, index)`` inside ``remove(boolean[], int)``:
+      ``Object`` is not assignable to ``boolean[]``.
+    * **An element of the parameter at that same position.** ``append(lhs[i], ..)``
+      inside ``append(Object[] lhs, ..)``, directly or via a for-each variable: an
+      element type is never assignable to its own array type.
+
+    A third condition was tried and withdrawn: "a varargs method loses to a
+    same-named fixed-arity sibling at this argument count". JLS 15.12.2 does
+    resolve phases 1 and 2 (no varargs) before phase 3, but a method is a
+    *candidate* in those phases only if it is applicable, which needs the argument
+    types to be compatible and not merely counted. With an incompatible sibling -
+    ``j(int, int, int)`` beside ``j(String, String...)`` calling
+    ``j(a, "b", "c")`` - phases 1 and 2 find nothing and phase 3 selects the
+    varargs method, so that call is genuine recursion. Arity alone cannot
+    establish applicability, so the condition is unsound and was removed.
+    """
+    args_node = call_node.child_by_field_name("arguments")
+    if args_node is None:
+        return False  # pragma: no cover - defensive: method_invocation always has arguments
+    args = args_node.named_children
+    params = facts.positional_params
+    if len(args) != len(params):
+        return False
+    return any(_java_arg_rules_out_param(arg, params[index], facts.type_variables, facts.foreach_array_sources) for index, arg in enumerate(args))
+
+
+def _java_arg_rules_out_param(
+    arg: tree_sitter.Node,
+    param: tuple[str | None, str | None],
+    tvars: frozenset[str],
+    foreach: Mapping[str, str],
+) -> bool:
+    """Return True if *arg* cannot be passed to *param*, so this is a different overload."""
+    ptype, pname = param
+    if ptype is None or ptype in tvars:
+        return False
+    if arg.type == _java.CAST_EXPRESSION:
+        return _java_cast_rules_out_param(arg, ptype)
+    if not ptype.endswith("[]") or pname is None:
+        return False
+    return _java_arg_is_element_of(arg, pname, foreach)
+
+
+#: ``Object`` written both ways. A parameter declared ``java.lang.Object`` accepts
+#: an ``(Object)`` cast, so comparing the raw source text would read the two
+#: spellings as different types and silence a genuine self-call.
+_JAVA_OBJECT_SPELLINGS = frozenset({"Object", "java.lang.Object"})
+
+
+def _java_cast_rules_out_param(arg: tree_sitter.Node, ptype: str) -> bool:
+    """Return True if *arg* is cast to ``Object`` and *ptype* is not ``Object``.
+
+    Only this direction is decidable without a type hierarchy: a cast to a subtype
+    of the parameter type is still applicable, so ``(String) o`` passed to a
+    ``CharSequence`` parameter proves nothing.
+    """
+    cast_type = arg.child_by_field_name("type")
+    if cast_type is None or node_text(cast_type) not in _JAVA_OBJECT_SPELLINGS:
+        return False
+    return ptype not in _JAVA_OBJECT_SPELLINGS
+
+
+def _java_arg_is_element_of(arg: tree_sitter.Node, pname: str, foreach: Mapping[str, str]) -> bool:
+    """Return True if *arg* is an element of the array parameter named *pname*.
+
+    Either by index (``lhs[i]``) or through a for-each variable
+    (``for (T e : lhs) f(e)``). Both have the element type, which is never
+    assignable to the array type the parameter declares.
+    """
+    if arg.type == _java.ARRAY_ACCESS:
+        base = arg.child_by_field_name("array")
+        return base is not None and base.type == _java.IDENTIFIER and node_text(base) == pname
+    return arg.type == _java.IDENTIFIER and foreach.get(node_text(arg)) == pname
+
+
 def _rust_is_associated_fn(func: tree_sitter.Node) -> bool:
     """Return True if *func* is a Rust ``fn`` declared inside an ``impl`` or ``trait``.
 
@@ -469,12 +672,15 @@ def _bare_call_cannot_recurse(func: tree_sitter.Node, func_name: str, func_types
     return _rust_is_associated_fn(func)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class _FunctionFacts:
     """Everything about the enclosing function a per-call decision needs.
 
-    All seven are computed once per function, so grouping them keeps the
-    per-call predicates to two arguments instead of eight.
+    Every field is computed once per function, which keeps the per-call predicates
+    to two arguments instead of eight and keeps the per-call work O(1) in the size
+    of the body. ``eq=False`` so no ``__hash__`` is generated: one field is a
+    mapping, and a frozen dataclass that looks hashable but raises on a mapping
+    field is a trap this codebase has already been bitten by once.
     """
 
     node: tree_sitter.Node
@@ -484,6 +690,31 @@ class _FunctionFacts:
     bare_cannot_recurse: bool
     shadowed_spans: tuple[tuple[int, int], ...]
     is_method: bool
+    #: Java only: ``(parameter count, is varargs)`` for every same-named method in
+    #: the enclosing type, including this one. Empty for other languages.
+    sibling_arities: tuple[tuple[int, bool], ...] = ()
+    is_varargs: bool = False
+    #: Java only: the positional ``(declared type, name)`` of each parameter, the
+    #: type variables in scope, and each for-each variable's source. All three are
+    #: consulted per call, so they are resolved here rather than re-derived; the
+    #: for-each map in particular needs a body walk.
+    positional_params: tuple[tuple[str | None, str | None], ...] = ()
+    type_variables: frozenset[str] = frozenset()
+    foreach_array_sources: Mapping[str, str] = field(default_factory=dict)
+
+    @property
+    def rival_arities(self) -> tuple[tuple[int, bool], ...]:
+        """The same-named declarations in this type other than this method.
+
+        One occurrence of this method's own shape is dropped rather than every
+        matching one: ``f(int)`` and ``f(String)`` share the shape ``(1, False)``,
+        so removing all of them would hide a genuine rival.
+        """
+        rivals = list(self.sibling_arities)
+        own = (len(self.positional_params), self.is_varargs)
+        if own in rivals:
+            rivals.remove(own)
+        return tuple(rivals)
 
 
 def _is_self_call(call_node: tree_sitter.Node, facts: _FunctionFacts) -> bool:
@@ -500,9 +731,151 @@ def _is_self_call(call_node: tree_sitter.Node, facts: _FunctionFacts) -> bool:
     """
     if _bare_call_rules_out_self(call_node, facts):
         return False
-    if facts.lang == _java.EXTRA_NAME and _java_arity_rules_out_self(call_node, facts.node):
+    if facts.lang == _java.EXTRA_NAME and _java_rules_out_self(call_node, facts):
         return False
     return _targets_self(call_node, facts.name, facts.lang, facts.receiver_name, is_method=facts.is_method)
+
+
+def _message_for(call_node: tree_sitter.Node, facts: _FunctionFacts) -> str:
+    """Return the message for this call, hedged only when a rival overload could take it."""
+    return _ambiguous_message(facts.name) if _java_rival_could_take_call(call_node, facts) else _certain_message(facts.name)
+
+
+def _java_rival_could_take_call(call_node: tree_sitter.Node, facts: _FunctionFacts) -> bool:
+    """Return True if a same-named sibling could accept this call's argument count.
+
+    The question is per call, not per method: a type holding ``f(int)`` and
+    ``f(int, int)`` has an overloaded name, but a one-argument call inside
+    ``f(int)`` has only one candidate and so resolves with certainty. Hedging it
+    would be over-correction in the other direction.
+    """
+    args = call_node.child_by_field_name("arguments")
+    if args is None:
+        return False  # pragma: no cover - defensive: method_invocation always has arguments
+    count = len(args.named_children)
+    return any(_java_accepts_arity(shape, count) for shape in facts.rival_arities)
+
+
+def _java_accepts_arity(shape: tuple[int, bool], arg_count: int) -> bool:
+    """Return True if a method of *shape* can be invoked with *arg_count* arguments.
+
+    *shape* is the ``(parameter count, is varargs)`` pair the overload table stores.
+    A varargs method accepts anything from its fixed prefix upwards.
+    """
+    param_count, varargs = shape
+    if varargs:
+        return arg_count >= param_count - 1
+    return arg_count == param_count
+
+
+def _certain_message(func_name: str) -> str:
+    """Build the message for a call that can only be a self-call."""
+    return f'Function "{func_name}" calls itself; recursion has no guaranteed stack bound (Power of Ten rule 1) - refactor to an explicit loop or worklist'
+
+
+def _ambiguous_message(func_name: str) -> str:
+    """Build the message for a call whose target needs type information to resolve.
+
+    When the enclosing type declares the name more than once, a same-arity call may
+    reach a sibling overload instead of recursing. The argument-shape rules in
+    :func:`_java_delegation_is_provable` settle the cases the source text settles;
+    what is left needs the declared types of locals and fields, which means a
+    classpath. Saying so is more useful than either asserting recursion that may
+    not be there or dropping the finding - the latter would silence genuine
+    recursion in any method that happens to be overloaded.
+
+    Limitation: only declarations on the enclosing type are known. A same-named
+    method **inherited** from a superclass can also win resolution, so the
+    unhedged message means "no rival in this type", not "no rival anywhere";
+    resolving that would need the supertype's source, which means a classpath.
+    """
+    return (
+        f'Function "{func_name}" calls "{func_name}", which is overloaded in this type, so the target cannot be '
+        f"resolved without type information; if it is this method, recursion has no guaranteed stack bound "
+        f"(Power of Ten rule 1) - refactor to an explicit loop or worklist"
+    )
+
+
+def _sibling_arities(func: tree_sitter.Node, func_name: str, methods: dict[int, dict[str, tuple[tuple[int, bool], ...]]]) -> tuple[tuple[int, bool], ...]:
+    """Return the same-named declarations in *func*'s enclosing type, or empty."""
+    if not methods:
+        return ()
+    owner = _java_enclosing_type(func)
+    if owner is None:
+        return ()
+    return methods.get(owner.id, {}).get(func_name, ())
+
+
+def _java_is_varargs(func: tree_sitter.Node) -> bool:
+    """Return True if *func*'s last parameter is a varargs (``T...``) parameter."""
+    params = func.child_by_field_name("parameters")
+    if params is None:
+        return False
+    return any(child.type == _java.SPREAD_PARAMETER for child in params.named_children)
+
+
+def _build_function_facts(
+    func: tree_sitter.Node,
+    func_name: str,
+    func_types: frozenset[str],
+    lang: str,
+    methods: dict[int, dict[str, tuple[tuple[int, bool], ...]]],
+) -> _FunctionFacts:
+    """Collect the per-function invariants the per-call predicates need."""
+    # Both Go and PHP name their method node ``method_declaration``. The
+    # ``is_method`` flag suppresses bare-call self-recursion for methods
+    # (a bare ``foo()`` denotes a package-level / global function, not the
+    # method). Only Go carries a user-named receiver to resolve.
+    is_method = func.type == _go.METHOD_DECLARATION and lang in (_go.EXTRA_NAME, _php.EXTRA_NAME)
+    java = _java_facts(func) if lang == _java.EXTRA_NAME else _NO_JAVA_FACTS
+    return _FunctionFacts(
+        node=func,
+        name=func_name,
+        lang=lang,
+        receiver_name=_go_receiver_name(func) if (is_method and lang == _go.EXTRA_NAME) else None,
+        bare_cannot_recurse=_bare_call_cannot_recurse(func, func_name, func_types, lang),
+        shadowed_spans=_rust_shadowed_spans(func, func_name) if lang == _rust.EXTRA_NAME else (),
+        is_method=is_method,
+        sibling_arities=_sibling_arities(func, func_name, methods),
+        is_varargs=_java_is_varargs(func) if lang == _java.EXTRA_NAME else False,
+        positional_params=java.positional_params,
+        type_variables=java.type_variables,
+        foreach_array_sources=java.foreach_array_sources,
+    )
+
+
+class _JavaFacts(NamedTuple):
+    """The Java-only half of :class:`_FunctionFacts`, resolved in one pass."""
+
+    positional_params: tuple[tuple[str | None, str | None], ...]
+    type_variables: frozenset[str]
+    foreach_array_sources: Mapping[str, str]
+
+
+_NO_JAVA_FACTS = _JavaFacts((), frozenset(), {})
+
+
+def _java_facts(func: tree_sitter.Node) -> _JavaFacts:
+    """Resolve the Java-only per-function facts for *func*.
+
+    The for-each map needs a body walk, and it is consulted only for a parameter
+    whose declared type is an array, so it is skipped entirely for the large
+    majority of methods that declare none.
+    """
+    params = _java_positional_params(func)
+    wants_foreach = any(ptype is not None and ptype.endswith("[]") for ptype, _ in params)
+    return _JavaFacts(
+        positional_params=params,
+        type_variables=_java_type_variables(func),
+        foreach_array_sources=_java_foreach_array_sources(func) if wants_foreach else {},
+    )
+
+
+def _java_rules_out_self(call_node: tree_sitter.Node, facts: _FunctionFacts) -> bool:
+    """Return True if Java overload resolution cannot select the enclosing method."""
+    if _java_arity_rules_out_self(call_node, facts.node):
+        return True
+    return _java_delegation_is_provable(call_node, facts)
 
 
 def _bare_call_rules_out_self(call_node: tree_sitter.Node, facts: _FunctionFacts) -> bool:
@@ -524,11 +897,13 @@ class NoRecursionRule(BaseRule):
         lang = resolve_lang_name(filepath)
         func_types = _FUNCTION_TYPES_BY_LANG[lang]
         call_types = _CALL_TYPES_BY_LANG[lang]
+        # Java overload resolution needs the sibling declarations, so the per-type
+        # method table has to be complete before the first function is checked.
+        # Both it and the function list come out of a single tree walk.
+        funcs, methods = _collect_functions(tree.root_node, func_types, lang)
         violations: list[Violation] = []
-        for node in walk(tree.root_node):
-            if node.type not in func_types:
-                continue
-            violations.extend(self._check_function(filepath, node, func_types, call_types, lang))
+        for node in funcs:
+            violations.extend(self._check_function(filepath, node, func_types, call_types, lang, methods))
         return violations
 
     def _check_function(
@@ -538,6 +913,7 @@ class NoRecursionRule(BaseRule):
         func_types: frozenset[str],
         call_types: frozenset[str],
         lang: str,
+        methods: dict[int, dict[str, tuple[tuple[int, bool], ...]]],
     ) -> list[Violation]:
         """Return one violation per direct self-call inside *func*.
 
@@ -552,32 +928,14 @@ class NoRecursionRule(BaseRule):
         if name_node is None:
             return []
         func_name = node_text(name_node)
-        # Both Go and PHP name their method node ``method_declaration``. The
-        # ``is_method`` flag suppresses bare-call self-recursion for methods
-        # (a bare ``foo()`` denotes a package-level / global function, not the
-        # method). Only Go carries a user-named receiver to resolve.
-        is_method = func.type == _go.METHOD_DECLARATION and lang in (_go.EXTRA_NAME, _php.EXTRA_NAME)
-        receiver_name = _go_receiver_name(func) if (is_method and lang == _go.EXTRA_NAME) else None
-        facts = _FunctionFacts(
-            node=func,
-            name=func_name,
-            lang=lang,
-            receiver_name=receiver_name,
-            bare_cannot_recurse=_bare_call_cannot_recurse(func, func_name, func_types, lang),
-            shadowed_spans=_rust_shadowed_spans(func, func_name) if lang == _rust.EXTRA_NAME else (),
-            is_method=is_method,
-        )
+        facts = _build_function_facts(func, func_name, func_types, lang, methods)
         violations: list[Violation] = []
         for node in walk(func, skip_types=tuple(func_types)):
             if node.type not in call_types:
                 continue
             if not _is_self_call(node, facts):
                 continue
-            base = self._make_violation_for_node(
-                filepath,
-                node,
-                f'Function "{func_name}" calls itself; recursion has no guaranteed stack bound (Power of Ten rule 1) - refactor to an explicit loop or worklist',
-            )
+            base = self._make_violation_for_node(filepath, node, _message_for(node, facts))
             # Violation is frozen; attach the advisory suggestion via replace.
             violations.append(replace(base, suggestions=(_ITERATIVE_SUGGESTION,)))
         return violations
