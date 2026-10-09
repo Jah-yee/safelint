@@ -9,17 +9,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pytest
-
-from safelint.core.config import DEFAULTS, deep_merge
-from safelint.core.engine import SafetyEngine
-
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from safelint.core.engine import LintResult
     from safelint.rules.base import Violation
+
+import pytest
+
+from safelint.core.config import DEFAULTS, deep_merge
+from safelint.core.engine import SafetyEngine
 
 
 def _engine() -> SafetyEngine:

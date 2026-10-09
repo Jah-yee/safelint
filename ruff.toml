@@ -51,7 +51,6 @@ select = [
     "RET", "RSE", "RUF",
     "S", "SIM", "SLF",
     "T10", "T20",
-    "TC",    
     "TID", "TRY",
     "UP", "W", "YTT",
 ]
