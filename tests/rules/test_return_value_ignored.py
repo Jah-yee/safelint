@@ -9,13 +9,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pytest
-
 if TYPE_CHECKING:
     from pathlib import Path
 
     from safelint.core.engine import LintResult
     from safelint.rules.base import Violation
+
+import pytest
 
 from safelint.core.config import DEFAULTS, deep_merge
 from safelint.core.engine import SafetyEngine
@@ -67,9 +67,7 @@ def test_subprocess_run_still_fires(tmp_path: Path) -> None:
 def test_fwrite_still_fires(tmp_path: Path) -> None:
     """``f.write(...)`` with discarded return value fires SAFE802."""
     sample = tmp_path / "write.py"
-    sample.write_text(
-        'f = open("/tmp/foo", "w")\nf.write("hello")\n', encoding="utf-8"
-    )
+    sample.write_text('f = open("/tmp/foo", "w")\nf.write("hello")\n', encoding="utf-8")
     hits = _safe802(_engine().check_file(str(sample)))
     assert len(hits) == 1
     assert "write" in hits[0].message
@@ -81,7 +79,7 @@ def test_fwrite_still_fires(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "name,snippet",
+    ("name", "snippet"),
     [
         ("remove", 'import os\nos.remove("/tmp/foo")\n'),
         ("unlink", 'import os\nos.unlink("/tmp/foo")\n'),
