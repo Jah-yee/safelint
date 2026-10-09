@@ -47,8 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **#153 is improved but not closed.** Of the 279 findings remaining on Commons Lang, 268 (96%) are same-arity overloads such as `remove(boolean[], int)` delegating to `remove(Object, int)`. The issue anticipated that residue but expected it to be rare; it is in fact the dominant remaining class. Classifying all 279 by argument shape shows **81%** of them state in the source text that they target a different signature - an explicit cast, a wrapping call, an array element where the parameter is an array, or a varargs method whose arity is claimed by a fixed-arity sibling - so most of the residue is reachable without type resolution after all. That is the next step on the issue, and it is deliberately *not* "stay quiet whenever the name is overloaded": genuine recursion passes plain identifiers and so carries none of those signals, which is why suppressing on name ambiguity alone would have silenced real recursion in `ClassUtils.getAllInterfaces` and Guava's `AbstractIteratorTester.recurse`.
 
-### Changed
-
 - **Python `return_value_ignored` (SAFE802):** removed `remove`, `unlink`, `rename`, `makedirs`, `mkdir`, and `rmdir` from the Python default `flagged_calls` list. These six `os`/`pathlib` functions return `None` (or, for `Path.rename`, an unactionable `Path`) in CPython, so flagging them produced unactionable false positives. The C defaults are unchanged. Documentation now clarifies that SAFE802 matches call names without their receiver, and explains why these functions are excluded from the Python defaults.
 
 ## [2.14.3] - 2026-10-04
