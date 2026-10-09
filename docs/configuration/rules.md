@@ -183,6 +183,39 @@ The rule fires on **direct self-recursion** - a function whose body contains a c
 
 Enabled by default at `warning` severity (mirrors `unbounded_loops`), so intentional recursion (tree walks, divide-and-conquer) does not block a local run. Annotate deliberate recursion with `# nosafe: SAFE105` (or the language's comment form) and a one-line justification.
 
+#### What counts as "its own name"
+
+A name match alone is not a self-call, so the rule rules a call out whenever the source text settles the question. These need no type information and so cannot hide genuine recursion:
+
+- **A same-named nested function** rebinds the name, so a bare call in the enclosing body reaches the nested one (every language). A `self`/`this`-qualified call still fires.
+- **Rust:** a bare `name(..)` inside an `impl` or `trait` body cannot reach the method, which needs `self.name()` or `Type::name(..)`. A function-local `use` rebinds the name for its enclosing block, so `use std::os::unix::fs::symlink;` inside `fn symlink` silences the bare call within that block (and only within it); an `as` alias binds the alias, not the path's last segment.
+- **Java:** the argument count must fit the signature, with the explicit receiver parameter (`void tick(Outer Outer.this, int n)`) discounted since it is never passed, and varargs exempt because a fixed-arity comparison proves nothing there. Beyond arity, two facts rule a call out: an argument cast to `Object` where the parameter is not `Object` (`remove((Object) array, index)` inside `remove(boolean[], int)`, with `java.lang.Object` recognised as the same type); and an element of the array parameter at that same position, by index or through a for-each variable (`append(lhs[i], ..)` inside `append(Object[] lhs, ..)`).
+
+#### Overloaded Java methods
+
+What the source text cannot settle is a call that an **overloaded** sibling could also accept. Resolving it needs the declared types of the arguments, which means a classpath:
+
+```java
+void expectContents(E... elements)      { expectContents(asList(elements)); }
+void expectContents(Collection<E> expected) { ... }
+```
+
+`asList(elements)` returns something safelint cannot type, so either method could be the target. safelint reports the call, with a message that says so rather than asserting recursion:
+
+```
+SAFE105 Function "expectContents" calls "expectContents", which is overloaded in this type, so
+        the target cannot be resolved without type information; if it is this method, recursion
+        has no guaranteed stack bound (Power of Ten rule 1) - refactor to an explicit loop or
+        worklist
+```
+
+Dropping these instead would silence genuine recursion in any method that happens to be overloaded, which is the more dangerous error for this rule: real recursion passes plain identifiers and so carries none of the signals above.
+
+The hedge is decided **per call**, from the argument count: a type holding `f(int)` and `f(int, int)` has an overloaded name, but a one-argument call inside `f(int)` has only one candidate, so that message is unhedged. A varargs sibling counts as a rival for any count from its fixed prefix upwards.
+
+!!! note "Inheritance is not resolved"
+    Only declarations on the enclosing type are known, so an unhedged message means "no rival **in this type**", not "no rival anywhere". A same-named method inherited from a superclass can also win resolution; seeing that would need the supertype's source, which again means a classpath.
+
 | Option | Default | Description |
 |---|---|---|
 | `enabled` | `true` | Turn rule on/off |
@@ -1207,7 +1240,9 @@ Calling `subprocess.run(["rm", "-rf", path])` as a bare statement (not assigning
 | `severity` | `"warning"` | `"error"` or `"warning"` |
 | `flagged_calls` | see below | Call names whose return value must not be discarded |
 
-Default `flagged_calls`: `run`, `call`, `check_output`, `write`, `send`, `sendall`, `sendfile`, `seek`, `truncate`, `remove`, `unlink`, `rename`, `replace`, `makedirs`, `mkdir`, `rmdir`
+Default `flagged_calls`: `run`, `call`, `check_output`, `write`, `send`, `sendall`, `sendfile`, `seek`, `truncate`, `replace`
+
+> **Note:** SAFE802 matches the call name without its receiver. For example, `asyncio.run()` can match `run`. Functions that return `None` (such as `os.remove`, `os.unlink`, `os.rename`, `os.makedirs`, `os.mkdir`, `os.rmdir`) are excluded from the Python defaults because their return value carries no success/failure signal. Because SAFE802 matches call names without receivers, this also excludes `Path.rename()` from the Python defaults.
 
 ```toml
 [tool.safelint.rules.return_value_ignored]

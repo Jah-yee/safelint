@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **SAFE105 `no_recursion` no longer asserts recursion it cannot prove (Java).** A same-arity call to an **overloaded** method name may reach a sibling overload rather than recursing, and choosing between them needs the declared types of the arguments, which means a classpath. Such findings now carry a message that says the target is unresolvable instead of stating outright that the method calls itself:
+
+  ```
+  SAFE105 Function "f" calls "f", which is overloaded in this type, so the target cannot be
+          resolved without type information; if it is this method, recursion has no guaranteed
+          stack bound (Power of Ten rule 1) - refactor to an explicit loop or worklist
+  ```
+
+  The hedge is decided **per call**, from the argument count, not per method name: a type holding `f(int)` and `f(int, int)` has an overloaded name, but a one-argument call inside `f(int)` has only one candidate and keeps the unhedged message. A varargs sibling counts as a rival for any count from its fixed prefix upwards. On Commons Lang **16 of 224** findings now assert recursion outright rather than all 279 doing so; on Guava, 81 of 475.
+
+  Dropping the hedged ones instead was considered and rejected: genuine recursion passes plain identifiers and so carries none of the signals below, so suppressing on name ambiguity alone would have silenced real recursion in Commons Lang's `ClassUtils.getAllInterfaces` and `walkInterfaces` and in Guava's `AbstractIteratorTester.recurse`. The code and severity are unchanged, so no config or CI gate moves; only the message text differs, and only for Java.
+
+  Known limit: only declarations on the enclosing type are visible, so an unhedged message means "no rival **in this type**", not "no rival anywhere" - a same-named method inherited from a superclass can also win resolution. Seeing that needs the supertype's source.
+
+- **Python `return_value_ignored` (SAFE802):** removed `remove`, `unlink`, `rename`, `makedirs`, `mkdir`, and `rmdir` from the Python default `flagged_calls` list. These six `os`/`pathlib` functions return `None` (or, for `Path.rename`, an unactionable `Path`) in CPython, so flagging them produced unactionable false positives. The C defaults are unchanged. Documentation now clarifies that SAFE802 matches call names without their receiver, and explains why these functions are excluded from the Python defaults.
+
+### Fixed
+
+- **SAFE105 `no_recursion`: two more Java shapes that are not self-calls (#153).** Each is a fact about overload resolution that the source text settles on its own, so neither can hide genuine recursion. Together they take Commons Lang **279 -> 224** and Guava **477 -> 475**; ripgrep (23) and Ruff (612) are unaffected, having no Java.
+  - **An argument cast to `Object` where the parameter is not `Object`.** `remove((Object) array, index)` inside `remove(boolean[] array, int index)`: `Object` is not assignable to `boolean[]`. Only this direction is decidable without a type hierarchy, since a cast to a *subtype* of the parameter type is still applicable; a parameter declared as a type variable is also exempt, because `<T> T f(T a)` really does accept `f((Object) a)` with `T` inferred as `Object`. `java.lang.Object` and `Object` are recognised as the same type, so the fully-qualified spelling does not read as a mismatch.
+  - **An element of the array parameter at that same position**, by index (`append(lhs[i], rhs[i])` inside `append(Object[] lhs, Object[] rhs)`) or through a for-each variable (`for (boolean e : array) append(e);` inside `append(boolean[] array)`). An element type is never assignable to its own array type. The for-each form is Commons Lang's `HashCodeBuilder` family, six findings in one file, none of which carries a cast.
+
+  A third condition was implemented, measured and then **withdrawn as unsound** before release: "a varargs method loses to a same-named fixed-arity sibling at this argument count". JLS 15.12.2 does resolve phases 1 and 2 (no varargs) before phase 3, but a method is a candidate in those phases only if it is *applicable*, which needs compatible argument types and not merely a matching count. With an incompatible sibling - `j(int, int, int)` beside `j(String, String...)` calling `j(a, "b", "c")` - phases 1 and 2 find nothing, phase 3 selects the varargs method, and the call is genuine recursion that the condition silenced. It accounted for 17 Commons Lang and 31 Guava suppressions, which is why those totals are 224 / 475 rather than 207 / 444.
+
+  Performance: the overload table is built once per file, in the same tree walk that collects the functions, and the for-each map is resolved only for methods that declare an array parameter. End to end on Guava this costs about **3.5%** (21.3s -> 22.0s); a first cut that re-derived both per call cost 17%.
+
+- **SAFE105 `no_recursion`: three shapes that are not self-calls are no longer reported as recursion.** The rule resolved a bare call by name with no notion of what that name refers to at the call site.
+  - **Java overloads (#153).** A call whose argument count differs from the enclosing method's parameter count cannot be a self-call, and deciding that needs no type information: `boolean[] add(boolean[], int, boolean)` calling `add(a, i, Boolean.valueOf(e), Boolean.TYPE)` is a different method. Varargs are exempt from the check, since a fixed-arity comparison proves nothing there. Measured: Commons Lang **655 -> 279** findings (-57%), Guava **2159 -> 477** (-78%).
+  - **Rust associated functions (#160).** A bare `name(..)` inside an `impl` or `trait` body can never reach the method - that requires `self.name()` or `Type::name(..)` - so it always resolves to a free function or an import. This is the same reasoning the existing `is_method` flag already applied to Go and PHP methods.
+  - **Rust function-local `use` (#173).** `use std::os::unix::fs::symlink;` inside a `fn symlink` rebinds the name for the rest of the block, so the bare call is not recursion. Covers plain paths, brace lists and `as` aliases. The shape is in ripgrep's `crates/ignore/src/walk.rs`.
+
+  Together on ripgrep: **32 -> 23** findings, removing exactly the 9 that #173 predicted. Self-qualified calls, genuine free-function recursion, matching-arity Java calls and unrelated local imports all still report - each pinned by a test, and each fix verified to be load-bearing by mutation.
+
+  Three ways the new suppressions could themselves have hidden genuine recursion were found in review and closed before release; all three were the dangerous direction for this rule, a missed finding rather than a false one. Counts on Commons Lang, Guava, ripgrep and Ruff are unchanged by the three, so none of the shapes occurs in that corpus - which is precisely why each needed a test rather than a measurement.
+  - **Java explicit receiver parameters.** `void tick(Outer Outer.this, int n)` parses the receiver as a `receiver_parameter` child of `formal_parameters`, but it is never passed at a call site, so counting it made the signature look like a two-parameter one and the one-argument self-call read as an arity mismatch. It is now discounted, and the arity check still fires on a genuine mismatch in such a method.
+  - **Rust `use` scope.** A `use` is an item, so it binds throughout its enclosing block and no further. Treating any import in the body as function-wide silenced a recursive call *outside* the block that shadowed the name. The check now carries the shadowing block's byte span and applies per call, so `{ use std::fs::walk; }` followed by `walk(n - 1)` still reports, while a call inside that block does not.
+  - **Rust `as` aliases.** `use other::bar as helper` binds only `helper`. Collecting every identifier beneath the `use` also read `bar` as bound, which silenced a genuine `bar()` call in `fn bar`; the walk now stops at the `as` clause and takes its alias.
+
+  **#153 is improved but not closed.** Of the 279 findings remaining on Commons Lang, 268 (96%) are same-arity overloads such as `remove(boolean[], int)` delegating to `remove(Object, int)`. The issue anticipated that residue but expected it to be rare; it is in fact the dominant remaining class. Classifying all 279 by argument shape shows **81%** of them state in the source text that they target a different signature - an explicit cast, a wrapping call, an array element where the parameter is an array, or a varargs method whose arity is claimed by a fixed-arity sibling - so most of the residue is reachable without type resolution after all. That is the next step on the issue, and it is deliberately *not* "stay quiet whenever the name is overloaded": genuine recursion passes plain identifiers and so carries none of those signals, which is why suppressing on name ambiguity alone would have silenced real recursion in `ClassUtils.getAllInterfaces` and Guava's `AbstractIteratorTester.recurse`.
+
 ## [2.14.3] - 2026-10-04
 
 ### Changed
